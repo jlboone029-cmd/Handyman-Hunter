@@ -1,41 +1,52 @@
-name: Handyman Hunter Scraper
+name: Run Handyman Hunter Scraper
 
 on:
+  workflow_dispatch: # Keeps manual polling on-demand active
   schedule:
-    - cron: '0 */4 * * *' # Runs every 4 hours automatically
-  workflow_dispatch: # Allows you to run it manually anytime
+    # Set to 7:00 AM, 8:30 AM, 1:00 PM, 5:00 PM, and 8:30 PM (Stops overnight)
+    - cron: '0 7,13,17 * * *'
+      timezone: 'America/New_York'
+    - cron: '30 8,20 * * *'
+      timezone: 'America/New_York'
 
+# CRITICAL: Gives GitHub permission to write files back into your repository
 permissions:
   contents: write
 
 jobs:
   run-scraper:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout Repository
+      - name: Checkout Repository Code
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/checkout@v4
+      - name: Set Up Python Environment
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      - name: Install Dependencies
+      - name: Install Python Dependencies
         run: |
           python -m pip install --upgrade pip
           pip install requests feedparser geopy
 
-      - name: Run Job Hunter Script
-        env:
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
-          SCRAPERAPI_KEY: ${{ secrets.SCRAPERAPI_KEY }}
+      - name: Execute Scraper Script
         run: python handyman_hunter.py
 
-      - name: Commit and Push Updated Progress
+      - name: Automatically Commit and Push Updated Dashboard
         run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "41898282+github-actions[bot]@://github.com"
+          git config --global user.name "GitHub Actions Automation"
+          git config --global user.email "actions@github.com"
+          
+          # Stage the history tracking file and the visual HTML page
           git add dual_leads_history.json leads_dashboard.html || true
-          git commit -m "Automated Sync: Update live leads dashboard [skip ci]" || true
-          git push
+          
+          # Commit the changes only if new leads were found
+          if ! git diff-index --quiet HEAD --; then
+            git commit -m "Auto-update: Dashboard refreshed with latest live leads"
+            git push origin HEAD:${{ github.ref_name }}
+          else
+            echo "No new leads found during this scan cycle. Repository is up to date."
+          fi
+
