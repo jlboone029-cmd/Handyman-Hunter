@@ -1,265 +1,176 @@
 import os
 import json
-import re
-import feedparser
 import requests
-from functools import lru_cache
-from geopy.geocoders import Nominatim
-from geopy.distance import geodesic
 from datetime import datetime
 
-# ========================================== #
-# SECURE CONFIGURATION VIA ENVIRONMENT       #
-# ========================================== #
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-APIFY_TOKEN = os.getenv("APIFY_TOKEN")
-SCRAPERAPI_KEY = os.getenv("SCRAPERAPI_KEY")
-
-# Official maintained endpoint identifier for Apify
-APIFY_ACTOR_ID = "apify/facebook-groups-scraper"
-
+# --- CONFIGURATION ENGINE ---
+APIFY_TOKEN = os.environ.get("APIFY_TOKEN", "")
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 HISTORY_FILE = "dual_leads_history.json"
-DASHBOARD_FILE = "leads_dashboard.html"
+HTML_OUTPUT_FILE = "leads_dashboard.html"
 
-# BOUNDARY CONFIGURATION
-CENTER_CITY = "Lexington, South Carolina"
-MAX_RADIUS_MILES = 25.0
+# 🎯 YOUR PIPE KEYWORD LIST - Modify these between quotes to change your targets!
+KEYWORD_PIPE_LIST = "handyman|repair|fence|drywall|sheetrock|carpenter|plumbing|fixture|deck|door|flooring|painting|fan"
 
-FACEBOOK_GROUPS = [
-    "https://facebook.com",
-    "https://facebook.com",
-    "https://facebook.com",
-    "https://facebook.com",
-    "https://facebook.com",
-    "https://facebook.com",
-    "https://facebook.com",
-    "https://facebook.com",
-    "https://facebook.com",
-    "https://facebook.com",
-    "https://facebook.com",
-    "https://facebook.com",
-    "https://facebook.com",
-    "https://facebook.com",
-    "https://facebook.com",
-    "https://facebook.com",
+# Expanded target list for high-traffic local neighborhood and marketplace groups
+FACEBOOK_GROUP_URLS = [
     "https://facebook.com",
     "https://facebook.com",
     "https://facebook.com",
     "https://facebook.com"
 ]
 
-CRAIGSLIST_RSS_FEEDS = [
-    "https://craigslist.org"
-]
+def load_history():
+    if os.path.exists(HISTORY_FILE):
+        try:
+            with open(HISTORY_FILE, "r") as f: return json.load(f)
+        except: return []
+    return []
 
-# ------------------------- #
-# Helpers                   #
-# ------------------------- #
+def save_history(history):
+    with open(HISTORY_FILE, "w") as f: json.dump(history, f, indent=4)
 
-def _load_history():
-    if not os.path.exists(HISTORY_FILE):
-        return []
-    try:
-        with open(HISTORY_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return data if isinstance(data, list) else []
-    except Exception:
-        return []
-
-def _save_history(history):
-    with open(HISTORY_FILE, "w", encoding="utf-8") as f:
-        json.dump(history[-200:], f)
-
-@lru_cache(maxsize=1)
-def _get_geolocator():
-    return Nominatim(user_agent="handyman_hunter_zo", timeout=10)
-
-@lru_cache(maxsize=1)
-def _center_coords():
-    geolocator = _get_geolocator()
-    center = geolocator.geocode(CENTER_CITY)
-    if not center:
-        raise RuntimeError(f"Could not geocode CENTER_CITY: {CENTER_CITY}")
-    return (center.latitude, center.longitude)
-
-def _normalize_town_name(s: str) -> str:
-    s = (s or "").strip()
-    s = re.sub(r"^['\"\s]+|['\"\s]+$", "", s)
-    s = re.sub(r"\s+", " ", s)
-    if s.lower().strip(".").strip() == "none":
-        return "None"
-    return s
-
-def _town_from_text_openrouter(text: str) -> str:
+def check_with_openrouter(post_text):
+    """Feeds text matching your pipe terms to OpenRouter to qualify buyers."""
     if not OPENROUTER_API_KEY:
-        return "None"
-
+        return True # Fallback if key missing
+        
     url = "https://openrouter.ai"
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-        "Content-Type": "application/json",
+        "Content-Type": "application/json"
     }
-
+    
+    # Converts pipes to a readable list for the AI agent
+    clean_services = ", ".join(KEYWORD_PIPE_LIST.split("|"))
+    
     prompt = (
-        "Extract ONLY the South Carolina town/city name mentioned in the text. "
-        "Return exactly one town name (e.g., 'Lexington') or 'None' if no SC town is present.\n\n"
-        f"TEXT:\n{text}"
+        f"Analyze this neighborhood community group post. Is this individual looking to find or hire "
+        f"someone to perform any of these maintenance tasks or trades: {clean_services}? "
+        f"Answer strictly with a single word response: YES or NO.\n\n"
+        f"Post Text: {post_text}"
     )
-
+    
     payload = {
-        "model": "meta-llama/llama-3.1-8b-instruct:free",
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.0,
+        "model": "google/gemini-2.5-flash",
+        "messages": [{"role": "user", "content": prompt}]
     }
-
     try:
-        r = requests.post(url, headers=headers, json=payload, timeout=20)
-        if r.status_code == 200:
-            data = r.json()
-            content = data["choices"]["message"]["content"]
-            return _normalize_town_name(content)
-    except Exception:
-        pass
-    return "None"
+        res = requests.post(url, headers=headers, json=payload, timeout=15)
+        if res.status_code == 200:
+            verdict = res.json()['choices']['message']['content'].strip().upper()
+            return "YES" in verdict
+    except Exception as e:
+        print(f"OpenRouter screening instance error: {e}")
+    return True
 
-def extract_and_verify_location(text: str) -> bool:
-    if not OPENROUTER_API_KEY:
-        return False
-
+def scrape_facebook_via_apify():
+    """Runs the Apify actor system to scrape target local Facebook groups."""
+    if not APIFY_TOKEN:
+        print("Scraping execution skipped. Apify Token environment variable missing.")
+        return []
+    
+    run_url = f"https://apify.com{APIFY_TOKEN}"
+    payload = {
+        "startUrls": [{"url": link} for link in FACEBOOK_GROUP_URLS],
+        "resultsLimit": 20,
+        "viewOption": "CHRONOLOGICAL"
+    }
+    
+    fb_leads = []
     try:
-        detected_town = _town_from_text_openrouter(text)
-        if detected_town == "None" or len(detected_town) > 40:
-            return False
+        print("Connecting to Apify Actor core...")
+        run_res = requests.post(run_url, json=payload, timeout=30)
+        if run_res.status_code == 201:
+            dataset_id = run_res.json()["data"]["defaultDatasetId"]
+            
+            import time
+            print("Allowing background extraction thread to fetch posts...")
+            time.sleep(25) # Brief hold while data gathers
+            
+            items_url = f"https://apify.com{dataset_id}/items?token={APIFY_TOKEN}"
+            items_res = requests.get(items_url, timeout=20)
+            if items_res.status_code == 200:
+                for post in items_res.json():
+                    text = post.get("text", "")
+                    post_id = post.get("id", "") or post.get("url", "")
+                    if text and post_id:
+                        fb_leads.append({"id": post_id, "text": text, "link": post.get("url", "#")})
+    except Exception as e:
+        print(f"Apify connector failed: {e}")
+    return fb_leads
 
-        geolocator = _get_geolocator()
-        center_latlon = _center_coords()
-
-        lead = geolocator.geocode(f"{detected_town}, South Carolina")
-        if not lead:
-            return False
-
-        lead_latlon = (lead.latitude, lead.longitude)
-        miles_apart = geodesic(center_latlon, lead_latlon).miles
-        return miles_apart <= MAX_RADIUS_MILES
-    except Exception:
-        return False
-
-# ------------------------- #
-# Visual Console HTML Generator
-# ------------------------- #
-def generate_html_dashboard(leads):
+def build_dashboard(leads):
+    timestamp = datetime.now().strftime("%Y-%m-%d %I:%M:%S %p")
     html_content = f"""<!DOCTYPE html>
-<html>
-<head>
-    <title>Handyman Hunter Console</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style>
-        body {{ font-family: Arial, sans-serif; background: #f4f6f9; margin: 0; padding: 20px; color: #333; }}
-        .container {{ max-width: 1000px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }}
-        h1 {{ color: #1e3a8a; border-bottom: 2px solid #e5e7eb; padding-bottom: 10px; }}
-        .badge {{ padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; color: white; }}
-        .badge-fb {{ background: #1877f2; }}
-        .badge-cl {{ background: #ff6600; }}
-        table {{ width: 100%; border-collapse: collapse; margin-top: 20px; }}
-        th, td {{ padding: 12px; text-align: left; border-bottom: 1px solid #e5e7eb; }}
-        th {{ background: #f8fafc; color: #475569; }}
-        tr:hover {{ background: #f1f5f9; }}
-        a {{ color: #2563eb; text-decoration: none; font-weight: bold; }}
-        a:hover {{ text-decoration: underline; }}
-    </style>
-</head>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Handyman Job Console</title>
+<style>
+    body {{ font-family: -apple-system, sans-serif; background-color: #f4f6f9; margin: 0; padding: 15px; }}
+    .header {{ background-color: #0056b3; color: white; padding: 20px; border-radius: 10px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }}
+    .header h1 {{ margin: 0; font-size: 22px; }}
+    .header p {{ margin: 5px 0 0 0; font-size: 13px; opacity: 0.9; }}
+    .card {{ background: white; padding: 15px; border-radius: 8px; margin-bottom: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); border-left: 5px solid #007bff; }}
+    .badge {{ display: inline-block; padding: 3px 8px; font-size: 11px; font-weight: bold; border-radius: 4px; color: white; background-color: #007bff; margin-bottom: 8px; }}
+    .title {{ font-size: 16px; font-weight: bold; margin-bottom: 6px; color: #111; }}
+    .desc {{ font-size: 14px; color: #555; line-height: 1.4; margin-bottom: 12px; }}
+    .btn {{ display: inline-block; background-color: #28a745; color: white; text-decoration: none; padding: 8px 14px; font-size: 14px; border-radius: 5px; font-weight: bold; }}
+    .no-leads {{ text-align: center; color: #777; font-style: italic; padding: 10px 0; }}
+</style></head>
 <body>
-    <div class="container">
-        <h1>🛠️ Lexington Handyman Job Console</h1>
-        <p>Last Operational Update: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
-        <table>
-            <thead>
-                <tr>
-                    <th>Source</th>
-                    <th>Lead Details</th>
-                    <th>Action</th>
-                </tr>
-            </thead>
-            <tbody>
-    """
+    <div class="header"><h1>🛠️ Lexington Area Handyman Job Console</h1><p>Last Operational Update: {timestamp}</p></div>"""
+
     if not leads:
-        html_content += "<tr><td colspan='3' style='text-align:center; color:#64748b;'>No live matching jobs within your 25-mile radius right now. Checking again soon!</td></tr>"
+        html_content += '<div class="card"><p class="no-leads">No active matching jobs found within your targeted group networks right now.</p></div>'
     else:
         for lead in leads:
-            badge_class = "badge-fb" if lead['source'] == "Facebook" else "badge-cl"
             html_content += f"""
-                <tr>
-                    <td><span class="badge {badge_class}">{lead['source']}</span></td>
-                    <td>{lead['title']}</td>
-                    <td><a href="{lead['link']}" target="_blank">Open Job ↗</a></td>
-                </tr>
-            """
-    
-    html_content += """
-            </tbody>
-        </table>
-    </div>
-</body>
-</html>
-    """
-    with open(DASHBOARD_FILE, "w", encoding="utf-8") as f:
-        f.write(html_content)
-
-# ------------------------- #
-# Scrapers                  #
-# ------------------------- #
-
-def scrape_facebook_via_apify(history):
-    new_leads = []
-    if not APIFY_TOKEN:
-        return new_leads, history
-
-    run_url = f"https://apify.com{APIFY_ACTOR_ID}/runs?token={APIFY_TOKEN}&waitForFinish=120"
-    actor_input = {
-        "startUrls": [{"url": link} for link in FACEBOOK_GROUPS],
-        "resultsLimit": 5,
-    }
-    try:
-        resp = requests.post(run_url, json=actor_input, timeout=150)
-        if resp.status_code == 200 or resp.status_code == 201:
-            run_data = resp.json().get("data", {}) or {}
-            dataset_id = run_data.get("defaultDatasetId")
-            if dataset_id:
-                items_url = f"https://apify.com{dataset_id}/items?token={APIFY_TOKEN}"
-                posts = requests.get(items_url, timeout=150).json()
-                for post in posts:
-                    post_id = post.get("id") or post.get("url")
-                    if not post_id or post_id in history:
-                        continue
-                    post_text = post.get("text") or post.get("message") or ""
-                    if post_text and extract_and_verify_location(post_text):
-                        new_leads.append({
-                            "id": post_id,
-                            "title": (post_text[:60] + "...") if len(post_text) > 60 else post_text,
-                            "link": post.get("url"),
-                            "source": "Facebook",
-                        })
-                    history.append(post_id)
-    except Exception:
-        pass
-    return new_leads, history
-
-def scrape_craigslist(history):
-    new_leads = []
-    if not SCRAPERAPI_KEY:
-        return new_leads, history
-
-    try:
-        for rss_url in CRAIGSLIST_RSS_FEEDS:
-            proxy_endpoint = f"http://scraperapi.com?api_key={SCRAPERAPI_KEY}&url={rss_url}"
-            rss_response = requests.get(proxy_endpoint, timeout=40)
+    <div class="card">
+        <span class="badge">FACEBOOK GROUP</span>
+        <div class="title">{lead["title"]}</div>
+        <div class="desc">{lead["description"]}</div>
+        <a href="{lead["link"]}" target="_blank" class="btn">Open Post To Bid ↗</a>
+    </div>"""
             
-            if rss_response.status_code == 200:
-                feed = feedparser.parse(rss_response.content)
-                for entry in feed.entries[:5]:
-                    entry_id = getattr(entry, "id", None) or getattr(entry, "link", None)
-                    if not entry_id or entry_id in history:
-                        continue
-                    title = getattr(entry, "title", "") or ""
-                    desc = getattr(entry, "description", "") or ""
-                    combined_text = f"{title} {desc}".strip()
+    html_content += "</body></html>"
+    with open(HTML_OUTPUT_FILE, "w", encoding="utf-8") as f: f.write(html_content)
+    print("Dashboard web interface rebuilt.")
+
+def main():
+    print("Initiating community group scanning engine...")
+    history = load_history()
+    collected_leads = []
+    
+    # Breaks up the pipes into a string array for fast filtering loops
+    target_keywords = KEYWORD_PIPE_LIST.lower().split("|")
+
+    fb_posts = scrape_facebook_via_apify()
+    print(f"Retrieved {len(fb_posts)} raw posts. Commencing pipeline validation process...")
+    
+    for post in fb_posts:
+        if post["id"] in history: 
+            continue
+            
+        post_text_lower = post["text"].lower()
+        
+        # Level 1 Match: Checks if any of your pipe keywords are in the text
+        if any(keyword in post_text_lower for keyword in target_keywords):
+            print(f"Keyword matched. Passing to OpenRouter AI helper...")
+            
+            # Level 2 Match: AI screens out sales, tool reviews, and spam posts
+            if check_with_openrouter(post["text"]):
+                print("🎯 Match confirmed by AI context checker!")
+                collected_leads.append({
+                    "source": "Facebook",
+                    "title": "Local Service Request Found",
+                    "description": post["text"][:220] + "..." if len(post["text"]) > 220 else post["text"],
+                    "link": post["link"]
+                })
+                history.append(post["id"])
+
+    save_history(history)
+    build_dashboard(collected_leads)
+    print(f"Cycle completed. Added {len(collected_leads)} unique client entries.")
+
+if __name__ == "__main__":
+    main()
