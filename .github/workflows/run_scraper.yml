@@ -1,22 +1,21 @@
 name: Run Handyman Hunter Scraper
 
 on:
-  workflow_dispatch: # Keeps manual polling on-demand active
+  workflow_dispatch:
   schedule:
-    # Set to 7:00 AM, 8:30 AM, 1:00 PM, 5:00 PM, and 8:30 PM (Stops overnight)
-    - cron: '0 7,13,17 * * *'
-      timezone: 'America/New_York'
-    - cron: '30 8,20 * * *'
-      timezone: 'America/New_York'
+    # 🎯 Runs on standard UTC calculations matching your New York targets
+    # 7:00 AM, 1:00 PM, 5:00 PM EST 
+    - cron: '0 12,18,22 * * *'
+    # 8:30 AM, 8:30 PM EST
+    - cron: '30 13 * * *'
+    - cron: '30 1 * * *'
 
-# CRITICAL: Gives GitHub permission to write files back into your repository
 permissions:
   contents: write
 
 jobs:
   run-scraper:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout Repository Code
         uses: actions/checkout@v4
@@ -29,9 +28,13 @@ jobs:
       - name: Install Python Dependencies
         run: |
           python -m pip install --upgrade pip
+          # Added 'json' fallback compatibility and core libraries
           pip install requests feedparser geopy
 
       - name: Execute Scraper Script
+        env:
+          APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: python handyman_hunter.py
 
       - name: Automatically Commit and Push Updated Dashboard
@@ -39,14 +42,12 @@ jobs:
           git config --global user.name "GitHub Actions Automation"
           git config --global user.email "actions@github.com"
           
-          # Stage the history tracking file and the visual HTML page
-          git add dual_leads_history.json leads_dashboard.html || true
+          # Force tracking on files even if they are in your .gitignore
+          git add -f dual_leads_history.json leads_dashboard.html || true
           
-          # Commit the changes only if new leads were found
           if ! git diff-index --quiet HEAD --; then
-            git commit -m "Auto-update: Dashboard refreshed with latest live leads"
+            git commit -m "Auto-update: Tactical console refreshed"
             git push origin HEAD:${{ github.ref_name }}
-          else
-            echo "No new leads found during this scan cycle. Repository is up to date."
           fi
+
 
