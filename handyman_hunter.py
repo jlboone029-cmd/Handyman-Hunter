@@ -8,7 +8,7 @@ from datetime import datetime
 APIFY_TOKEN = os.environ.get("APIFY_TOKEN", "")
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 HISTORY_FILE = "dual_leads_history.json"
-HTML_OUTPUT_FILE = "index.html"
+HTML_OUTPUT_FILE = "index.html" # Changed to index.html so your web link opens instantly!
 
 # 🎯 YOUR MASTER 80+ PIPE KEYWORD LIST
 KEYWORD_PIPE_LIST = (
@@ -50,13 +50,13 @@ def save_history(history):
 
 def check_with_openrouter(post_text):
     if not OPENROUTER_API_KEY:
+        print("OpenRouter Key missing. Skipping AI filtering step.")
         return True
     url = "https://openrouter.ai"
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
         "Content-Type": "application/json"
     }
-    clean_services = ", ".join(KEYWORD_PIPE_LIST.split("|"))
     prompt = (
         f"Analyze this local Facebook group community post. Is this individual explicitly looking to find, hire, "
         f"or get recommendations for a contractor, handyman, or repair service technician to perform "
@@ -74,7 +74,7 @@ def check_with_openrouter(post_text):
     try:
         res = requests.post(url, headers=headers, json=payload, timeout=15)
         if res.status_code == 200:
-            verdict = res.json()['choices']['message']['content'].strip().upper()
+            verdict = res.json()['choices'][0]['message']['content'].strip().upper()
             return "YES" in verdict
     except Exception as e:
         print(f"OpenRouter error: {e}")
@@ -98,6 +98,7 @@ def scrape_facebook_via_apify():
         run_res = requests.post(run_url, json=payload, timeout=30)
         if run_res.status_code == 201:
             dataset_id = run_res.json()["data"]["defaultDatasetId"]
+            print(f"Scraper job initialized. Waiting 45s for dataset {dataset_id}...")
             time.sleep(45)
             
             items_url = f"https://apify.com{dataset_id}/items?token={APIFY_TOKEN}"
@@ -105,9 +106,22 @@ def scrape_facebook_via_apify():
             if items_res.status_code == 200:
                 for post in items_res.json():
                     text = post.get("text", "")
-                    post_id = post.get("id", "") or post.get("url", "")
-                    if text and post_id:
-                        fb_leads.append({"id": post_id, "text": text, "link": post.get("url", "#")})
+                    post_id = post.get("id", "")
+                    
+                    # Robust fallback link parsing to bypass layout changes
+                    post_link = (
+                        post.get("url") or 
+                        post.get("facebookUrl") or 
+                        post.get("postUrl") or 
+                        (f"https://facebook.com{post_id}" if post_id else "#")
+                    )
+                    
+                    if text and post_link:
+                        fb_leads.append({
+                            "id": post_id or post_link, 
+                            "description": text, 
+                            "link": post_link
+                        })
     except Exception as e:
         print(f"Apify connector failed: {e}")
     return fb_leads
@@ -165,37 +179,35 @@ def build_dashboard(leads, checked_count):
             <span class="source-badge">VERIFIED BUYER</span>
             <span class="time-badge">Live Target</span>
         </div>
-        <div class="lead-desc">{lead["description"]}</div>
-        <a href="{lead["link"]}" target="_blank" class="bid-btn">LAUNCH LINK TO BID ↗</a>
+        <div class="lead-desc">{lead.get("description", "No description text provided.")}</div>
+        <a href="{lead.get("link", "#")}" target="_blank" class="bid-btn">LAUNCH LINK TO BID ↗</a>
     </div>"""
             
-    html_content += "</body></html>"
-    with open(HTML_OUTPUT_FILE, "w", encoding="utf-8") as f: f.write(html_content)
+    html_content += "\n</body>\n</html>"
+    with open(HTML_OUTPUT_FILE, "w", encoding="utf-8") as f:
+        f.write(html_content)
 
-def main():
-    history = load_history()
-    collected_leads = []
-    target_keywords = KEYWORD_PIPE_LIST.lower().split("|")
-
-    fb_posts = scrape_facebook_via_apify()
-    
-    for post in fb_posts:
-        if post["id"] in history: 
-            continue
-        post_text_lower = post["text"].lower()
-        if any(keyword in post_text_lower for keyword in target_keywords):
-            if check_with_openrouter(post["text"]):
-                collected_leads.append({
-                    "source": "Facebook",
-                    "title": "Service Request Found",
-                    "description": post["text"],
-                    "link": post["link"]
-                })
-                history.append(post["id"])
-
-    save_history(history)
-    build_dashboard(collected_leads, len(fb_posts))
-
+# --- MASTER ORCHESTRATION APPLICATION LOOP ---
 if __name__ == "__main__":
-    main()
+    print("🤖 Launching Handyman Hunter Automation Engine...")
+    
+    # 1. Pull data feeds from Facebook via Apify
+    raw_posts = scrape_facebook_via_apify()
+    print(f"Scrape completed. Retrieved {len(raw_posts)} total posts to analyze.")
+    
+    verified_leads = []
+    
+    # 2. Match posts against keyword list and pass to OpenRouter AI for region evaluation
+    import re
+    keyword_regex = re.compile(KEYWORD_PIPE_LIST, re.IGNORECASE)
+    
+    for idx, post in enumerate(raw_posts):
+        text_content = post.get("description", "")
+        if keyword_regex.search(text_content):
+            print(f"[{idx+1}/{len(raw_posts)}] Match found! Validating SC regions via OpenRouter AI...")
+            if check_with_openrouter(text_content):
+                print(" -> AI Verdict: VALID target service territory. Adding to dashboard.")
+                verified_leads.append(post)
+            else:
+
 
