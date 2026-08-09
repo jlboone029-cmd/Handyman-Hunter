@@ -8,7 +8,7 @@ from datetime import datetime
 APIFY_TOKEN = os.environ.get("APIFY_TOKEN", "")
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 HISTORY_FILE = "dual_leads_history.json"
-HTML_OUTPUT_FILE = "leads_dashboard.html"
+HTML_OUTPUT_FILE = "index.html"
 
 # 🎯 YOUR MASTER 80+ PIPE KEYWORD LIST
 KEYWORD_PIPE_LIST = (
