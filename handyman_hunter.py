@@ -8,7 +8,7 @@ from datetime import datetime
 APIFY_TOKEN = os.environ.get("APIFY_TOKEN", "")
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 HISTORY_FILE = "dual_leads_history.json"
-HTML_OUTPUT_FILE = "index.html" # Changed to index.html so your web link opens instantly!
+HTML_OUTPUT_FILE = "index.html"
 
 # 🎯 YOUR MASTER 80+ PIPE KEYWORD LIST
 KEYWORD_PIPE_LIST = (
@@ -74,7 +74,7 @@ def check_with_openrouter(post_text):
     try:
         res = requests.post(url, headers=headers, json=payload, timeout=15)
         if res.status_code == 200:
-            verdict = res.json()['choices'][0]['message']['content'].strip().upper()
+            verdict = res.json()['choices']['message']['content'].strip().upper()
             return "YES" in verdict
     except Exception as e:
         print(f"OpenRouter error: {e}")
@@ -108,7 +108,6 @@ def scrape_facebook_via_apify():
                     text = post.get("text", "")
                     post_id = post.get("id", "")
                     
-                    # Robust fallback link parsing to bypass layout changes
                     post_link = (
                         post.get("url") or 
                         post.get("facebookUrl") or 
@@ -191,13 +190,11 @@ def build_dashboard(leads, checked_count):
 if __name__ == "__main__":
     print("🤖 Launching Handyman Hunter Automation Engine...")
     
-    # 1. Pull data feeds from Facebook via Apify
     raw_posts = scrape_facebook_via_apify()
     print(f"Scrape completed. Retrieved {len(raw_posts)} total posts to analyze.")
     
     verified_leads = []
     
-    # 2. Match posts against keyword list and pass to OpenRouter AI for region evaluation
     import re
     keyword_regex = re.compile(KEYWORD_PIPE_LIST, re.IGNORECASE)
     
@@ -209,5 +206,8 @@ if __name__ == "__main__":
                 print(" -> AI Verdict: VALID target service territory. Adding to dashboard.")
                 verified_leads.append(post)
             else:
+                print(" -> AI Verdict: INVALID location/intent parameters.")
 
+    build_dashboard(verified_leads, len(raw_posts))
+    print(f"🚀 Sync sequence fully complete. {len(verified_leads)} live leads updated inside {HTML_OUTPUT_FILE}.")
 
