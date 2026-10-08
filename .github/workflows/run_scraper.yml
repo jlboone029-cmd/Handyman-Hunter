@@ -1,6 +1,9 @@
 name: Run Handyman Hunter Scraper
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
   schedule:
     # 🎯 Runs on standard UTC calculations matching your New York targets
