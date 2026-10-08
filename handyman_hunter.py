@@ -24,18 +24,10 @@ KEYWORD_PIPE_LIST = (
 
 # 🗺️ 17 HIGH-TRAFFIC SC REGIONAL TARGET GROUPS
 FACEBOOK_GROUP_URLS = [
-    "https://facebook.com",
-    "https://facebook.com",
-    "https://facebook.com",
-    "https://facebook.com",
-    "https://facebook.com",
-    "https://facebook.com",
-    "https://facebook.com",
-    "https://facebook.com",
-    "https://facebook.com",
-    "https://facebook.com",
-    "https://facebook.com",
-    "https://facebook.com",
+    "https://facebook.com", "https://facebook.com", "https://facebook.com",
+    "https://facebook.com", "https://facebook.com", "https://facebook.com",
+    "https://facebook.com", "https://facebook.com", "https://facebook.com",
+    "https://facebook.com", "https://facebook.com", "https://facebook.com",
     "https://facebook.com"
 ]
 
@@ -128,29 +120,31 @@ def scrape_facebook_via_apify():
 
 def build_dashboard(leads, checked_count):
     timestamp = datetime.now().strftime("%I:%M %p | %b %d")
-    html_content = f"""<!DOCTYPE html>
+    channels_count = str(len(FACEBOOK_GROUP_URLS))
+    
+    html_content = """<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Handyman Control Console</title>
     <style>
-        body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: #0d1117; margin: 0; padding: 12px; color: #c9d1d9; }}
-        .console-header {{ background: linear-gradient(135deg, #1f2937, #111827); border: 1px solid #30363d; border-radius: 12px; padding: 16px; margin-bottom: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }}
-        .console-header h1 {{ margin: 0; font-size: 20px; color: #58a6ff; font-weight: 800; display: flex; align-items: center; gap: 8px; }}
-        .status-bar {{ display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }}
-        .metric-box {{ background: #161b22; border: 1px solid #21262d; padding: 10px; border-radius: 8px; text-align: center; }}
-        .metric-label {{ font-size: 11px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.5px; }}
-        .metric-value {{ font-size: 18px; font-weight: bold; margin-top: 4px; color: #3ff23f; }}
-        .metric-value.sync {{ color: #ffbc00; }}
-        .lead-card {{ background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 16px; margin-bottom: 14px; box-shadow: 0 2px 6px rgba(0,0,0,0.2); border-left: 6px solid #238636; }}
-        .badge-row {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }}
-        .source-badge {{ background-color: #238636; color: white; padding: 4px 8px; font-size: 11px; font-weight: bold; border-radius: 6px; text-transform: uppercase; }}
-        .time-badge {{ font-size: 12px; color: #8b949e; }}
-        .lead-desc {{ font-size: 14px; color: #e6edf3; line-height: 1.5; margin-bottom: 16px; white-space: pre-wrap; }}
-        .bid-btn {{ display: block; text-align: center; background: #238636; color: white; text-decoration: none; padding: 12px; font-size: 15px; border-radius: 8px; font-weight: bold; box-shadow: 0 2px 4px rgba(0,0,0,0.2); transition: background 0.2s; }}
-        .bid-btn:active {{ background: #2ea043; }}
-        .empty-state {{ text-align: center; padding: 40px 20px; color: #8b949e; font-style: italic; }}
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: #0d1117; margin: 0; padding: 12px; color: #c9d1d9; }
+        .console-header { background: linear-gradient(135deg, #1f2937, #111827); border: 1px solid #30363d; border-radius: 12px; padding: 16px; margin-bottom: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+        .console-header h1 { margin: 0; font-size: 20px; color: #58a6ff; font-weight: 800; display: flex; align-items: center; gap: 8px; }
+        .status-bar { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }
+        .metric-box { background: #161b22; border: 1px solid #21262d; padding: 10px; border-radius: 8px; text-align: center; }
+        .metric-label { font-size: 11px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.5px; }
+        .metric-value { font-size: 18px; font-weight: bold; margin-top: 4px; color: #3ff23f; }
+        .metric-value.sync { color: #ffbc00; }
+        .lead-card { background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 16px; margin-bottom: 14px; box-shadow: 0 2px 6px rgba(0,0,0,0.2); border-left: 6px solid #238636; }
+        .badge-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        .source-badge { background-color: #238636; color: white; padding: 4px 8px; font-size: 11px; font-weight: bold; border-radius: 6px; text-transform: uppercase; }
+        .time-badge { font-size: 12px; color: #8b949e; }
+        .lead-desc { font-size: 14px; color: #e6edf3; line-height: 1.5; margin-bottom: 16px; white-space: pre-wrap; }
+        .bid-btn { display: block; text-align: center; background: #238636; color: white; text-decoration: none; padding: 12px; font-size: 15px; border-radius: 8px; font-weight: bold; box-shadow: 0 2px 4px rgba(0,0,0,0.2); transition: background 0.2s; }
+        .bid-btn:active { background: #2ea043; }
+        .empty-state { text-align: center; padding: 40px 20px; color: #8b949e; font-style: italic; }
     </style>
 </head>
 <body>
@@ -159,11 +153,11 @@ def build_dashboard(leads, checked_count):
         <div class="status-bar">
             <div class="metric-box">
                 <div class="metric-label">Live Channels</div>
-                <div class="metric-value">{len(FACEBOOK_GROUP_URLS)} Active</div>
+                <div class="metric-value">""" + channels_count + """ Active</div>
             </div>
             <div class="metric-box">
                 <div class="metric-label">Last Cloud Sync</div>
-                <div class="metric-value sync">{timestamp}</div>
+                <div class="metric-value sync">""" + timestamp + """</div>
             </div>
         </div>
     </div>
@@ -173,14 +167,16 @@ def build_dashboard(leads, checked_count):
         html_content += '<div class="empty-state">📡 Scanning frequencies active... No fresh targeted leads found in this sync block.</div>'
     else:
         for lead in leads:
-            html_content += f"""
+            desc = lead.get("description", "No description text provided.")
+            link = lead.get("link", "#")
+            html_content += """
     <div class="lead-card">
         <div class="badge-row">
             <span class="source-badge">VERIFIED BUYER</span>
             <span class="time-badge">Live Target</span>
         </div>
-        <div class="lead-desc">{lead.get("description", "No description text provided.")}</div>
-        <a href="{lead.get("link", "#")}" target="_blank" class="bid-btn">LAUNCH LINK TO BID ↗</a>
+        <div class="lead-desc">""" + desc + """</div>
+        <a href="""" + link + """" target="_blank" class="bid-btn">LAUNCH LINK TO BID ↗</a>
     </div>"""
             
     html_content += "\n</body>\n</html>"
