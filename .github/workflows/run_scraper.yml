@@ -46,8 +46,7 @@ jobs:
           git config --global user.email "actions@github.com"
           
           # Force tracking on files even if they are in your .gitignore
-          git add -f dual_leads_history.json leads_dashboard.html || true
-          
+          git add -f dual_leads_history.json index.html  || true
           if ! git diff-index --quiet HEAD --; then
             git commit -m "Auto-update: Tactical console refreshed"
             git push origin HEAD:${{ github.ref_name }}
