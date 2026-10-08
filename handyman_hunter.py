@@ -3,12 +3,13 @@ import json
 import requests
 import time
 from datetime import datetime
+import re
 
 # --- CONFIGURATION ENGINE ---
 APIFY_TOKEN = os.environ.get("APIFY_TOKEN", "")
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 HISTORY_FILE = "dual_leads_history.json"
-HTML_OUTPUT_FILE = "index.html"
+HTML_OUTPUT_FILE = "leads_dashboard.html"
 
 # 🎯 YOUR MASTER 80+ PIPE KEYWORD LIST
 KEYWORD_PIPE_LIST = (
@@ -189,25 +190,24 @@ def build_dashboard(leads, checked_count):
 # --- MASTER ORCHESTRATION APPLICATION LOOP ---
 if __name__ == "__main__":
     print("🤖 Launching Handyman Hunter Automation Engine...")
-    
+    history = load_history()
     raw_posts = scrape_facebook_via_apify()
     print(f"Scrape completed. Retrieved {len(raw_posts)} total posts to analyze.")
     
     verified_leads = []
-    
-    import re
     keyword_regex = re.compile(KEYWORD_PIPE_LIST, re.IGNORECASE)
     
     for idx, post in enumerate(raw_posts):
         text_content = post.get("description", "")
         if keyword_regex.search(text_content):
-            print(f"[{idx+1}/{len(raw_posts)}] Match found! Validating SC regions via OpenRouter AI...")
-            if check_with_openrouter(text_content):
-                print(" -> AI Verdict: VALID target service territory. Adding to dashboard.")
-                verified_leads.append(post)
-            else:
-                print(" -> AI Verdict: INVALID location/intent parameters.")
+            if post["id"] not in history:
+                print(f"[{idx+1}/{len(raw_posts)}] Match found! Validating SC regions via OpenRouter AI...")
+                if check_with_openrouter(text_content):
+                    print(" -> AI Verdict: VALID target service territory. Adding to dashboard.")
+                    verified_leads.append(post)
+                    history.append(post["id"])
+                else:
+                    print(" -> AI Verdict: INVALID location/intent parameters.")
 
+    save_history(history)
     build_dashboard(verified_leads, len(raw_posts))
-    print(f"🚀 Sync sequence fully complete. {len(verified_leads)} live leads updated inside {HTML_OUTPUT_FILE}.")
-
